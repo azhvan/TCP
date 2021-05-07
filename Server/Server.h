@@ -12,7 +12,7 @@ class Server
 private:
   int port_;
   ba::io_service io_service_;
-  tcp::acceptor *acceptor_;
+  tcp::acceptor acceptor_;
   boost::thread_group threads;
   void help();
   void exit();

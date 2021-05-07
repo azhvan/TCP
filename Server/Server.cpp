@@ -1,7 +1,6 @@
 #include "Server.h"
 #include <iostream>
 #include <string>
-#include <thread>
 
 void Server::help()
 {
@@ -22,7 +21,7 @@ void Server::help()
 
 void Server::exit()
 {
-
+  io_service_.stop();
 }
 
 void Server::start()
@@ -32,13 +31,13 @@ void Server::start()
     return;
   }
 
-  acceptor_->listen(5);
+  acceptor_.listen(5);
   spawn(io_service_, [&](yield_context yield)
     {
       while (1)
       {
-        tcp::socket socket_(acceptor_->get_executor());
-        acceptor_->async_accept(socket_, yield);
+        tcp::socket socket_(acceptor_.get_executor());
+        acceptor_.async_accept(socket_, yield);
         spawn(yield, [s = std::move(socket_), this](yield_context yield) mutable {
           char buf[1024] = {};
           size_t bytes = s.async_read_some(ba::buffer(buf), yield);
@@ -54,9 +53,9 @@ void Server::start()
 
 void Server::setPort(int port)
 {
-  this->port_ = port;
-  acceptor_->bind(tcp::endpoint(tcp::v4(), port_));
-  std::cout << "Server will be on port " << this->port_ << "\n";
+  port_ = port;
+  acceptor_.bind(tcp::endpoint(tcp::v4(), port_));
+  std::cout << "Server will be on port " << port_ << "\n";
 }
 
 void Server::stop()
@@ -66,11 +65,12 @@ void Server::stop()
 }
 
 Server::Server() :
-  port_(-1)
+  port_(-1),
+  acceptor_(io_service_)
 {
-  acceptor_ = new tcp::acceptor(io_service_);
-  acceptor_->open(tcp::v4());
-  acceptor_->set_option(tcp::acceptor::reuse_address(true));
+  //acceptor_ = new tcp::acceptor(io_service_);
+  acceptor_.open(tcp::v4());
+  acceptor_.set_option(tcp::acceptor::reuse_address(true));
   run();
 }
 
@@ -88,6 +88,7 @@ void Server::run()
     }
     if (command.find("exit") != std::string::npos)
     {
+      exit();
       return;
     }
     if (command.find("start") != std::string::npos)
@@ -99,9 +100,18 @@ void Server::run()
       std::string port = "";
       for (int i = 8; i < command.length(); i++) 
       {
+        if (command[i] == ' ')
+          continue;
         port = port + command[i];
       }
-      setPort(std::stoi(port));
+      if (port.length() == 0)
+      {
+        std::cerr << "doesn`t find port\n";
+      }
+      else
+      {
+        setPort(std::stoi(port));
+      }
     }
     if (command.find("stop") != std::string::npos)
     {
