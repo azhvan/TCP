@@ -18,79 +18,59 @@ void Client::help()
 
 void Client::exit()
 {
-  socket_->cancel();
-  socket_->close();
+  socket_.cancel();
+  socket_.close();
 }
 
-void Client::connect(const std::string& connectintString)
+void Client::connect(const std::string& connectingString)
 {
-  this->ip_ = "";
-  bool endIp = false;
-  std::string port = "";
-  for (int j = 0; j < connectintString.length(); j++) {
-    if (connectintString[j] == ':') {
-      endIp = true;
-      j++;
-    }
-    !endIp ?
-      ip_ += connectintString[j] :
-      port += connectintString[j];
-  }
-  this->port_ = std::stoi(port);
-
-  socket_.reset(new tcp::socket(io_service_));
-  
-  std::cout << "Connect to " << ip_ << ":" << port << "\n";
-  socket_->async_connect(tcp::endpoint(boost::asio::ip::address_v4::from_string(ip_), this->port_),
-    boost::bind(&Client::handle_connect, this,
-      socket_,
-      boost::asio::placeholders::error));
-}
-
-void Client::handle_connect(boost::shared_ptr<tcp::socket> socket,
-                            const boost::system::error_code& error)
-{
-  if (!error)
+  auto colonPos = connectingString.find(':');
+  if ( colonPos == std::string::npos)
   {
-    std::cout << "Successfully connected\n";
+    std::cerr << "Port doesn`t find\n";
+    return;
   }
-  else
+  ip_ = connectingString.substr(0, colonPos);
+  std::string portPart = connectingString.substr(colonPos + 1);
+  port_ = std::stoi(portPart);
+
+  boost::system::error_code error;
+  socket_.connect(tcp::endpoint(boost::asio::ip::address_v4::from_string(ip_), port_), error);
+  if (error)
   {
-    std::cerr << "Connected error: " << error.message() << std::endl;
-    socket_->close();
+    std::cerr << "Connect failed: " << error.message() << "\n";
+    return;
   }
+  std::cout << "Connect to " << ip_ << ":" << port_ << "\n";
 }
 
 void Client::send(std::string msg)
 {
+  if (ip_ == "" || port_ == -1)
+  {
+    std::cerr << "Firstly connect!\n";
+    return;
+  }
   boost::system::error_code error;
-  socket_->async_write_some(ba::buffer(msg),
-    boost::bind(&Client::handle_send, this,
-      boost::asio::placeholders::error,
-      boost::asio::placeholders::bytes_transferred,
-      msg));
-}
-
-void Client::handle_send(const boost::system::error_code& error, 
-                         size_t bytes_transferred, 
-                         std::string msg)
-{
-  if (!error)
+  if(!socket_.is_open())
+    socket_.connect(tcp::endpoint(boost::asio::ip::address_v4::from_string(ip_), port_));
+  socket_.write_some(ba::buffer(msg), error);
+  if (error)
   {
-    std::cout << "Message sent to " + ip_ + ":" << port_ << " with data: " + msg + "\n";
+    std::cerr << "Send failed: " << error.message() << "\n";
   }
-  else
-  {
-    std::cerr << "Connected error: " << error.message() << std::endl;
-  }
+    std::cout << "Message sent to " << ip_ << ":" << port_ << " with data: " << msg << "\n";
+  socket_.close();
 }
 
 Client::Client() : 
+  socket_(io_service_),
   ip_(""),
   port_(-1)
 {
   run();
 }
+
 
 void Client::run()
 {
@@ -108,7 +88,8 @@ void Client::run()
     }
     if (command.find("exit") != std::string::npos)
     {
-      exit();
+      if(socket_.is_open())
+        exit();
       return;
     }
     if (command.find("connect") != std::string::npos)
@@ -116,10 +97,11 @@ void Client::run()
       std::string connectingString = "";
       for (int i = 8; i < command.length(); i++) 
       {
+        if (command[i] == ' ')
+          continue;
         connectingString = connectingString + command[i];
       }
       connect(connectingString);
-      io_service_.run();
     }
     if (command.find("send") != std::string::npos)
     {
@@ -129,7 +111,6 @@ void Client::run()
         msg = msg + command[i];
       }
       send(msg);
-
     }
   }
 }
